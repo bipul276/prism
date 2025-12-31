@@ -1,0 +1,177 @@
+services:
+  # 1. PostgreSQL Database
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-prism_db}
+    ports:
+      - "127.0.0.1:5433:5432" # Internal only on host
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - prism_network
+
+  # 2. Redis (Message Queue & Cache)
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379" # Internal only on host
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - prism_network
+
+  # 3. ChromaDB (Vector Store - Server Mode)
+  chromadb:
+    image: chromadb/chroma:0.5.5
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8001:8000" # Internal only on host
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+    healthcheck:
+      # Robust TCP check using bash (available in current image)
+      test: [ "CMD-SHELL", "/bin/bash -c 'echo > /dev/tcp/localhost/8000'" ]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+    # User requested compat limits
+    mem_limit: 1g
+    cpus: 1.0
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - prism_network
+
+  # 4. FastAPI Backend
+  api:
+    build: ./ml
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    command: uvicorn ml.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "127.0.0.1:8000:8000" # Localhost only
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://postgres:password@postgres:5432/prism_db}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - CHROMA_HOST=${CHROMA_HOST:-chromadb}
+      - CHROMA_PORT=${CHROMA_PORT:-8000}
+      - GOOGLE_FACT_CHECK_API_KEY=${GOOGLE_FACT_CHECK_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+    healthcheck:
+      # Use python stdlib to avoid curl dependency
+      test: [ "CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+    mem_limit: 1g
+    cpus: 1.0
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - prism_network
+
+  # 5. Celery Worker
+  worker:
+    build: ./ml
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    command: celery -A ml.workers.celery_app worker --loglevel=info
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://postgres:password@postgres:5432/prism_db}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - CHROMA_HOST=${CHROMA_HOST:-chromadb}
+      - CHROMA_PORT=${CHROMA_PORT:-8000}
+      - GOOGLE_FACT_CHECK_API_KEY=${GOOGLE_FACT_CHECK_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+      # API dependency removed per best practices
+    healthcheck:
+      # Worker health = can act (ping redis)
+      test: [ "CMD", "python3", "-c", "import redis, os; redis.from_url(os.getenv('REDIS_URL')).ping()" ]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+    mem_limit: 4g
+    cpus: 2.0
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - prism_network
+
+  # 6. Next.js Frontend
+  web:
+    build:
+      context: ./app
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "127.0.0.1:3001:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - INTERNAL_API_URL=http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - prism_network
+
+volumes:
+  postgres_data:
+  chroma_data:
+
+
+networks:
+  prism_network:
+    driver: bridge
