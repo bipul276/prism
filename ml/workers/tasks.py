@@ -46,7 +46,8 @@ def analyze_text_task(self, text, claim_id=None):
         return json.loads(cached)
     
     # 1. Stylometric Risk
-    style_risk = stylometer.analyze(text)
+    style_analysis = stylometer.analyze(text)
+    style_risk = style_analysis["score"]
     
     # 2. XAI Heatmap
     heatmap = xai.explain(text)
@@ -65,13 +66,12 @@ def analyze_text_task(self, text, claim_id=None):
     
     should_fetch = False
     
-    # SAFETY OVERRIDE: Check for dangerous keywords
-    # If the user asks about "danger", "poison", "kill", "bioweapon", we MUST be aggressive.
-    danger_keywords = ["dangerous", "poison", "kill", "deadly", "bioweapon", "unsafe", "causing death"]
-    is_safety_critical = any(k in text.lower() for k in danger_keywords)
+    # SAFETY OVERRIDE: Semantic Check
+    # Use NLI to detect danger/harm without brittle keywords
+    is_safety_critical = nli.check_safety(text)
     
     if is_safety_critical:
-         print(f"Worker: Safety Critical Keyword found. FORCING FETCH.")
+         print(f"Worker: Semantic Safety Check TRIGGERED. FORCING FETCH.")
          should_fetch = True
          
     elif not evidence_list:
@@ -340,16 +340,23 @@ def analyze_text_task(self, text, claim_id=None):
     final_risk = style_risk
     
     # Override based on evidence
-    if refutes_count > 0:
-        # If ANY evidence refutes the claim, risk is EXTREME
+    if refutes_count > 0 and supports_count > 0:
+        # Conflicting evidence = Contested
+        final_risk = 65 # Medium Risk (Amber)
+        quality_note = "Contested - Conflicting Evidence"
+    elif refutes_count > 0:
+        # If ONLY refuting evidence found (or no supports), risk is EXTREME
         final_risk = max(final_risk, 95)
-    elif supports_count > 0 and refutes_count == 0:
+    elif supports_count > 0:
         # If verified sources support it, risk is LOW
         final_risk = min(final_risk, 5)
-    elif is_safety_critical and final_risk < 50:
-        # Safety Critical but ONLY Neutral evidence found (no refutes, no supports)
-        # Verify if we actually have enough neutral evidence
-        if neutral_count > 0:
+    elif is_safety_critical:
+        # Safety Critical Logic
+        if insufficient_evidence:
+             print("Worker: Safety Critical query with NO evidence. Elevating Risk.")
+             final_risk = max(final_risk, 80) # Force High Risk for unverified danger
+             quality_note = "Unverified - High Risk Topic"
+        elif neutral_count > 0 and final_risk < 50:
              print("Worker: Safety Critical query with only Neutral evidence. Elevating Risk.")
              final_risk = 70 # High Caution
              quality_note = "Unverified - Exercise Caution"
@@ -361,6 +368,10 @@ def analyze_text_task(self, text, claim_id=None):
     result["risk_score"] = final_risk
     result["style_risk_score"] = final_risk # Overwrite for UI
     
+    # Add new linguistic fields
+    result["linguistic_signals"] = style_analysis.get("signals", [])
+    result["linguistic_verdict"] = style_analysis.get("verdict", "")
+
     result["meta"] = {
         "app_version": "v1.0.0-beta",
         "model_type": "roberta-base+heuristics",

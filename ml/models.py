@@ -19,5 +19,7 @@ class AnalysisResult(Base):
     style_risk_score = Column(Float, nullable=True)
     stance_distribution = Column(JSON, nullable=True)
     explanation = Column(Text, nullable=True)
+    linguistic_verdict = Column(Text, nullable=True)
+    linguistic_signals = Column(JSON, nullable=True)
     model_version = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

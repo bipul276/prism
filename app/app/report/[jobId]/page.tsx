@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Loader2, Printer } from 'lucide-react';
+import { LinguisticAnalysis } from '../../components/linguistic-analysis';
 
 export default function ReportPage() {
     const params = useParams();
@@ -106,25 +107,13 @@ export default function ReportPage() {
                     </div>
                 </section>
 
-                {/* 4. Linguistic Analysis (Print-Safe Heatmap) */}
-                <section className="mb-10 page-break-inside-avoid">
-                    <h2 className="text-sm font-sans font-bold uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">Linguistic Analysis</h2>
-                    <p className="text-xs text-gray-500 mb-4 italic">Underlined terms contributed to the risk score.</p>
-                    <div className="leading-loose text-lg text-justify text-gray-800">
-                        {result.heatmap?.map((token: any, i: number) => {
-                            // Print logic handled by CSS classes
-                            const isHigh = token.score > 0.45;
-                            const style = isHigh ?
-                                { textDecoration: 'underline', textDecorationColor: '#666', textUnderlineOffset: '3px' } : {};
-
-                            return (
-                                <span key={i} style={style} className={isHigh ? 'font-medium' : ''}>
-                                    {token.token}{' '}
-                                </span>
-                            );
-                        })}
-                    </div>
-                </section>
+                {/* 4. Linguistic Analysis (3-Layer) */}
+                <LinguisticAnalysis
+                    verdict={result.linguistic_verdict}
+                    signals={result.linguistic_signals}
+                    heatmap={result.heatmap}
+                    riskScore={result.style_risk_score}
+                />
 
                 {/* 5. Evidence Sections (Narrative Grouping) */}
                 <section className="mb-8">

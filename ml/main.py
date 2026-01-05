@@ -94,9 +94,9 @@ async def health_check():
 
 @app.post("/api/analyze")
 @limiter.limit("5/minute")
-async def analyze_claim(request: AnalyzeRequest, request_obj: Request):
+async def analyze_claim(request: Request, payload: AnalyzeRequest):
     # Enqueue task
-    task = analyze_text_task.delay(request.text)
+    task = analyze_text_task.delay(payload.text)
     return {"job_id": task.id, "status": "submitted"}
 
 @app.get("/api/status/{job_id}")

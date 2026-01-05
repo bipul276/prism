@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { AnalysisForm } from './components/analysis-form';
 import { RiskSummary } from './components/risk-summary';
-import { HeatmapText } from './components/heatmap-text';
+import { LinguisticAnalysis } from './components/linguistic-analysis';
 import { EvidenceStack } from './components/evidence-stack';
 import { Loader2 } from "lucide-react";
 
@@ -129,24 +129,21 @@ export default function Home() {
             {/* 2. Analysis Content (Linear Stack) */}
             <div className="space-y-10">
 
-              {/* Heatmap Section */}
+              {/* Linguistic Analysis Section (Full 3-Layer) */}
               <div className="space-y-4">
                 <div className="flex justify-between items-end border-b border-gray-100 pb-2">
-                  <h3 className="text-lg font-medium text-gray-900">Linguistic Analysis</h3>
                   {completedJobId && (
-                    <a href={`/report/${completedJobId}`} target="_blank" className="text-xs font-medium text-gray-500 hover:text-gray-900 flex items-center gap-1 transition-colors">
+                    <a href={`/report/${completedJobId}`} target="_blank" className="text-xs font-medium text-gray-500 hover:text-gray-900 flex items-center gap-1 transition-colors ml-auto">
                       EXPORT PDF ↗
                     </a>
                   )}
                 </div>
-                <div className="bg-white rounded-lg border border-gray-100 p-6 shadow-sm">
-                  <HeatmapText tokens={result.heatmap} />
-                  <div className="mt-4 flex gap-4 text-xs text-gray-400">
-                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-100"></span> Low Impact</div>
-                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-200"></span> Med Impact</div>
-                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-400"></span> High Impact</div>
-                  </div>
-                </div>
+                <LinguisticAnalysis
+                  verdict={result.linguistic_verdict}
+                  signals={result.linguistic_signals}
+                  heatmap={result.heatmap}
+                  riskScore={result.style_risk_score}
+                />
               </div>
 
               {/* Evidence Section */}

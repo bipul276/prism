@@ -21,7 +21,12 @@ export function RiskSummary({ score, stance }: RiskSummaryProps) {
         level = 'HIGH';
         colorClass = "bg-red-50 text-red-900 border-red-200";
         icon = <ShieldAlert className="w-5 h-5 text-red-600" />;
-        message = "Credible sources directly refute this claim.";
+
+        if (stance.refutes > 0) {
+            message = "Credible sources directly refute this claim.";
+        } else {
+            message = "High Safety Risk. Verification incomplete or inconclusive.";
+        }
     } else if (score >= 50) {
         level = 'MEDIUM';
         colorClass = "bg-amber-50 text-amber-900 border-amber-200";

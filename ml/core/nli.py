@@ -62,3 +62,32 @@ class StanceClassifier:
                 "neutral": p_neutral
             }
         }
+
+    def check_safety(self, text):
+        """
+        Zero-shot semantic check for safety-critical content.
+        Hypothesis: "This text describes a situation involving physical danger, health risks, or death."
+        """
+        hypothesis = "This text describes a situation involving physical danger, health risks, or death."
+        
+        # Order: (Premise, Hypothesis)
+        inputs = self.tokenizer(
+            text, 
+            hypothesis, 
+            return_tensors="pt", 
+            truncation=True, 
+            max_length=512
+        ).to(self.device)
+        
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+            probs = F.softmax(outputs.logits, dim=-1)
+            
+        # 0: contradiction, 1: entailment, 2: neutral (Validation needed)
+        # Based on previous code assumption: 1 is entailment.
+        p_entail = probs[0][1].item()
+        
+        print(f"DEBUG: Safety Check '{text[:30]}...' -> Entailment: {p_entail:.4f}")
+        
+        # Threshold: If > 50% sure it entails danger
+        return p_entail > 0.5

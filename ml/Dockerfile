@@ -6,7 +6,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y build-essential && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --default-timeout=1000 --no-cache-dir -r requirements.txt
 # Install uvicorn and celery explicitly if not in requirements (it should be)
 RUN pip install uvicorn celery redis
 
