@@ -31,7 +31,12 @@ export function RiskSummary({ score, stance }: RiskSummaryProps) {
         level = 'MEDIUM';
         colorClass = "bg-amber-50 text-amber-900 border-amber-200";
         icon = <AlertTriangle className="w-5 h-5 text-amber-600" />;
-        message = "Evidence is conflicting or only partially supports the claim.";
+        // Check if it's a language vs evidence mismatch
+        if (stance.refutes > 0 && stance.supports > 0) {
+            message = "Evidence is conflicting, despite neutral phrasing.";
+        } else {
+            message = "Evidence only partially supports this claim.";
+        }
     } else if (stance.neutral > 0 && stance.supports === 0 && stance.refutes === 0) {
         level = 'UNKNOWN';
         colorClass = "bg-gray-50 text-gray-700 border-gray-200";

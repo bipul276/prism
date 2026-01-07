@@ -75,23 +75,54 @@ interface HeatmapLegendProps {
     overallRisk?: number;
 }
 
-export function HeatmapLegend({ overallRisk = 50 }: HeatmapLegendProps) {
+interface HeatmapLegendProps {
+    overallRisk?: number;
+    detectedSignals?: string[]; // Signal names like "Causal Absolutes", "Emotional Loading"
+}
+
+export function HeatmapLegend({ overallRisk = 50, detectedSignals = [] }: HeatmapLegendProps) {
     // Don't show legend for neutral claims
     if (overallRisk < 30) {
         return null;
     }
 
+    const hasCausal = detectedSignals.some(s => s.includes("Causal"));
+    const hasEmotional = detectedSignals.some(s => s.includes("Emotional"));
+
+    // For medium risk, make it collapsible
+    if (overallRisk < 60) {
+        return (
+            <details className="mt-4 border-t border-gray-100 pt-3">
+                <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600 select-none">
+                    What do these highlights mean?
+                </summary>
+                <div className="flex items-center gap-6 text-xs text-gray-400 mt-2">
+                    <div className={`flex items-center gap-2 ${hasCausal ? 'opacity-100' : 'opacity-40'}`}>
+                        <span className="w-12 h-0.5 bg-red-400 opacity-50 block"></span>
+                        <span>Causal framing {!hasCausal && <span className="text-gray-300">(not detected)</span>}</span>
+                    </div>
+                    <div className={`flex items-center gap-2 ${hasEmotional ? 'opacity-100' : 'opacity-40'}`}>
+                        <span className="w-12 h-3 bg-red-100 block border-b border-red-400 opacity-50"></span>
+                        <span>Emotional language {!hasEmotional && <span className="text-gray-300">(not detected)</span>}</span>
+                    </div>
+                </div>
+            </details>
+        );
+    }
+
+    // For high risk, show full legend
     return (
         <div className="flex items-center gap-6 text-xs text-gray-500 mt-4 border-t border-gray-100 pt-4 font-sans">
-            <div className="flex items-center gap-2">
+            <div className={`flex items-center gap-2 ${hasCausal ? '' : 'opacity-40'}`}>
                 <span className="w-16 h-1 bg-transparent border-b-2 border-red-400 opacity-50 block"></span>
-                <span>Causal framing / certainty</span>
+                <span>Causal framing {!hasCausal && <span className="text-gray-300">(not detected)</span>}</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className={`flex items-center gap-2 ${hasEmotional ? '' : 'opacity-40'}`}>
                 <span className="w-16 h-4 bg-red-100 block border-b-2 border-red-600 opacity-50"></span>
-                <span>Emotional language / absolute claims</span>
+                <span>Emotional language {!hasEmotional && <span className="text-gray-300">(not detected)</span>}</span>
             </div>
         </div>
     );
 }
+
 
