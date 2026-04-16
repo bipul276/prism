@@ -2,8 +2,8 @@ import asyncio
 import os
 import requests
 from sqlalchemy.ext.asyncio import AsyncSession
-from database import AsyncSessionLocal, engine, Base
-from models import Claim
+from ml.database import AsyncSessionLocal, engine, Base
+from ml.models import Claim
 from datetime import datetime
 from dotenv import load_dotenv
 

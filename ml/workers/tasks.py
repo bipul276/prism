@@ -55,19 +55,19 @@ def analyze_text_task(self, text, claim_id=None):
     # 3. Retrieve Evidence
     evidence_list = retriever.retrieve(text)
     
-    # Trust Gating: Check evidence quality
-    # Relaxed to 1.4 to show more news results (Lane B often comes in ~1.2-1.3)
+    # Trust Gating: TIGHTENED from 1.4 → 1.0
+    # Cosine distance > 1.0 means the evidence is barely related to the claim.
+    # Accepting 1.2-1.6 pulled in articles about completely different events
+    # (e.g., Iran/Israel articles for a Russia/Ukraine query).
+    STRICT_THRESHOLD = 1.0
     original_count = len(evidence_list)
-    evidence_list = [e for e in evidence_list if e['score'] < 1.4] 
+    evidence_list = [e for e in evidence_list if e['score'] < STRICT_THRESHOLD] 
+    print(f"Worker: Initial retrieval: {original_count} raw → {len(evidence_list)} after threshold {STRICT_THRESHOLD}")
     
     # REACTIVE RAG & 3-LANE ROUTER
-    # Trigger if NO evidence OR if we have evidence but it's all weak/neutral (trust gating)
-    # We want to force a refresh if the best match is still mediocre.
-    
     should_fetch = False
     
     # SAFETY OVERRIDE: Semantic Check
-    # Use NLI to detect danger/harm without brittle keywords
     is_safety_critical = nli.check_safety(text)
     
     if is_safety_critical:
@@ -78,13 +78,10 @@ def analyze_text_task(self, text, claim_id=None):
         should_fetch = True
         print(f"Worker: No relevant internal evidence. Triggering Smart Fetch.")
     else:
-        # Check if we have any strong matches (Score < 0.6 is usually good)
-        # Or if we have NLI conflict? No, NLI isn't run yet.
-        # Just check retrieval density.
         best_score = min([e['score'] for e in evidence_list])
-        if best_score > 0.8: # If even the best match is kinda 'meh'
-             print(f"Worker: Best internal match is weak ({best_score:.2f}). Triggering Smart Fetch.")
-             should_fetch = True
+        if best_score > 0.7:
+              print(f"Worker: Best internal match is weak ({best_score:.2f}). Triggering Smart Fetch.")
+              should_fetch = True
              
     if should_fetch:
         print(f"Worker: Analyzing route for: '{text}'")
@@ -111,15 +108,14 @@ def analyze_text_task(self, text, claim_id=None):
                     if not fc_data:
                         print("Worker: Lane A empty. Falling back to Lane B (News)...")
                         nf = NewsFetcher()
-                        news_data = nf.search_news(text)
+                        news_data = nf.search_news(text, max_results=30)
                         if news_data: new_data.extend(news_data)
 
                 # Lane B: General News (Events)
                 elif route == "lane_b" or (is_safety_critical and not new_data):
-                     # Safety Fallback: If Lane A found nothing for a dangerous topic, force Lane B
                     print("Worker: Running Lane B (Trusted News)...")
                     nf = NewsFetcher()
-                    news_data = nf.search_news(text)
+                    news_data = nf.search_news(text, max_results=30)
                     if news_data: 
                         print(f"Worker: Lane B found {len(news_data)} items.")
                         new_data.extend(news_data)
@@ -129,7 +125,7 @@ def analyze_text_task(self, text, claim_id=None):
                 if new_data:
                     print(f"Worker: Ingesting {len(new_data)} items...")
                     await save_claims(new_data)
-                    # CRITICAL: Wait for ChromaDB to index the new vectors
+                    # Wait for ChromaDB to index the new vectors
                     print("Worker: Waiting 5s for indexing...")
                     await asyncio.sleep(5) 
                     return True
@@ -144,43 +140,35 @@ def analyze_text_task(self, text, claim_id=None):
                 print("Worker: Re-running retrieval...")
                 raw_evidence = retriever.retrieve(text)
                 
-                # Dynamic Relaxation Loop
-                # Try strict, then medium, then loose
-                thresholds = [1.2, 1.4, 1.6]
+                # Dynamic Relaxation Loop — TIGHTENED thresholds
+                # Previous: [1.2, 1.4, 1.6] — way too loose, pulled unrelated articles
+                # Now: [0.8, 1.0, 1.2] — only accept genuinely related evidence
+                thresholds = [0.8, 1.0, 1.2]
                 final_evidence = []
                 quality_note = "Verified"
-                used_threshold = 1.2
+                used_threshold = 0.8
                 
                 for t in thresholds:
                     filtered = [e for e in raw_evidence if e['score'] < t]
                     if len(filtered) >= 3:
                         final_evidence = filtered
                         used_threshold = t
-                        break # We have enough good evidence
-                    final_evidence = filtered # Keep whatever we found so far
+                        break
+                    final_evidence = filtered
                     used_threshold = t
                 
-                # Cutoff: Limit to Top 8 results to prevent infinite scrolling/overload
-                evidence_list = final_evidence[:8]
+                # INCREASED cap from 8 → 15 to show more evidence for well-covered topics
+                evidence_list = final_evidence[:15]
                 
-                # Add Disclaimer if we had to scrape the bottom of the barrel
-                if used_threshold >= 1.6:
+                if used_threshold >= 1.2:
                     print(f"Worker: Used broad threshold {used_threshold}. Adding disclaimer.")
                     quality_note = "Weak Evidence Match (View with Caution)"
-                    # Tag individual items? No, just the overall status.
 
         except Exception as e:
             print(f"Worker: Smart Fetch failed: {e}")
             import traceback
             traceback.print_exc() 
     
-    # Logic for when NO fetch happened (internal only) or fetch failed
-    if not should_fetch:
-         # Apply same dynamic logic to initial internal retrieval
-         # We already have raw 'evidence_list' from line 54 (which was unfiltered? No, line 54 is raw)
-         # Wait, line 59 filtered it. We need to move that logic.
-         pass # Handled below if we reorganize code, but for now just leave it.
-
     insufficient_evidence = False
     
     if not evidence_list:
@@ -188,17 +176,12 @@ def analyze_text_task(self, text, claim_id=None):
         insufficient_evidence = True
         quality_note = "Insufficient Evidence"
 
-    # 4. NLI Stance & Reputation
+    # 4. NLI Stance & Reputation — NOW WITH TOPICAL RELEVANCE GATING
     stance_results = []
     supports_count = 0
     refutes_count = 0
     neutral_count = 0
-    
-    # 4. NLI Stance & Reputation
-    stance_results = []
-    supports_count = 0
-    refutes_count = 0
-    neutral_count = 0
+    skipped_irrelevant = 0
     
     seen_urls = set()
     unique_evidence = []
@@ -214,6 +197,17 @@ def analyze_text_task(self, text, claim_id=None):
     evidence_list = unique_evidence
     
     for ev in evidence_list:
+        # NEW: Topical relevance check BEFORE stance classification
+        # This prevents "Iran attacked Israel" from being used as evidence 
+        # for/against "Russia attacked Ukraine"
+        is_relevant, relevance_score = nli.is_topically_relevant(text, ev['text'])
+        ev['relevance_score'] = relevance_score
+        
+        if not is_relevant:
+            print(f"Worker: SKIPPING irrelevant evidence (score={relevance_score:.2f}): '{ev['text'][:60]}...'")
+            skipped_irrelevant += 1
+            continue
+        
         stance = nli.predict(text, ev['text'])
         ev['stance'] = stance
         
@@ -229,26 +223,20 @@ def analyze_text_task(self, text, claim_id=None):
             refutes_count += 1
         else:
             neutral_count += 1
+    
+    if skipped_irrelevant > 0:
+        print(f"Worker: Skipped {skipped_irrelevant} irrelevant evidence items.")
             
     # STANCE-BASED REACTIVE FETCH
-    # If we have evidence, but it's ALL Neutral (and we haven't fetched yet), 
-    # it means we have "related" info but nothing that confirms/debunks the claim.
-    # Force a fetch to look for a "smoking gun".
-    
-    # We use a flag to prevent infinite loops if we already fetched
-    # But since this is a one-shot task, we can just check if we have enough strong evidence.
-    
-    if len(evidence_list) > 0 and refutes_count == 0 and supports_count == 0:
+    # If we have evidence, but it's ALL Neutral, force a deeper search
+    if len(stance_results) > 0 and refutes_count == 0 and supports_count == 0:
         print(f"Worker: Evidence found but ALL NEUTRAL. Triggering Deep Search for Stance.")
         
         try:
-             # Re-import to avoid scope issues
             from ml.core.router import EvidenceRouter
             from ml.ingest import fetch_claims, save_claims
             from ml.core.news_fetcher import NewsFetcher
-            import asyncio
             
-            # Simple 3-step fetch: Lane A -> Lane B
             async def run_deep_fetch():
                 print("Worker: Deep Fetch running...")
                 new_data = []
@@ -257,9 +245,9 @@ def analyze_text_task(self, text, claim_id=None):
                 fc = await fetch_claims(query=text)
                 if fc: new_data.extend(fc)
                 
-                # 2. Try News (Broad)
+                # 2. Try News (Broad) — now fetches 30 instead of 10
                 nf = NewsFetcher()
-                news = nf.search_news(text)
+                news = nf.search_news(text, max_results=30)
                 if news: new_data.extend(news)
                 
                 if new_data:
@@ -270,50 +258,51 @@ def analyze_text_task(self, text, claim_id=None):
             got_new = asyncio.run(run_deep_fetch())
             
             if got_new:
-                 # Re-retrieve and Re-rank
-                 print("Worker: Deep Fetch complete. Re-ranking...")
-                 # Clear previous results to avoid mixing old neutral with new stuff? 
-                 # Actually, better to keep both but prioritize new.
-                 new_evidence = retriever.retrieve(text)
+                print("Worker: Deep Fetch complete. Re-ranking...")
+                new_evidence = retriever.retrieve(text)
                  
-                 # Re-run NLI on new evidence
-                 for ev in new_evidence:
-                     # Skip if we already saw it (Dedupe again)
-                     if ev.get('url') in seen_urls: continue
-                     
-                     stance = nli.predict(text, ev['text'])
-                     ev['stance'] = stance
-                     ev['credibility'] = reputation.check(ev.get('url'))
-                     
-                     stance_results.append(ev)
-                     
-                     if stance['label'] == 'supports': supports_count += 1
-                     elif stance['label'] == 'refutes': refutes_count += 1
-                     else: neutral_count += 1
+                for ev in new_evidence:
+                    if ev.get('url') in seen_urls: continue
+                    
+                    # Apply relevance gating to deep-fetched evidence too
+                    is_relevant, relevance_score = nli.is_topically_relevant(text, ev['text'])
+                    if not is_relevant:
+                        continue
+                    
+                    ev['relevance_score'] = relevance_score
+                    stance = nli.predict(text, ev['text'])
+                    ev['stance'] = stance
+                    ev['credibility'] = reputation.check(ev.get('url'))
+                    
+                    stance_results.append(ev)
+                    if ev.get('url'): seen_urls.add(ev['url'])
+                    
+                    if stance['label'] == 'supports': supports_count += 1
+                    elif stance['label'] == 'refutes': refutes_count += 1
+                    else: neutral_count += 1
         except Exception as e:
             print(f"Worker: Deep Fetch failed: {e}")
 
     # 4b. Diversity Re-ranking
-    # Group by stance to ensure variety at the top
     supports_list = [e for e in stance_results if e['stance']['label'] == 'supports']
     refutes_list = [e for e in stance_results if e['stance']['label'] == 'refutes']
     neutral_list = [e for e in stance_results if e['stance']['label'] == 'neutral']
     
-    # Sort buckets by relevance score (lower is better)
-    supports_list.sort(key=lambda x: x.get('score', 100))
-    refutes_list.sort(key=lambda x: x.get('score', 100))
-    neutral_list.sort(key=lambda x: x.get('score', 100))
+    # Sort buckets by relevance score (higher = better) then by retrieval score (lower = better)
+    supports_list.sort(key=lambda x: (-x.get('relevance_score', 0), x.get('score', 100)))
+    refutes_list.sort(key=lambda x: (-x.get('relevance_score', 0), x.get('score', 100)))
+    neutral_list.sort(key=lambda x: (-x.get('relevance_score', 0), x.get('score', 100)))
     
     diversified_results = []
     
-    # Pick top 1 from each category if available (Prioritize Refutes -> Supports -> Neutral)
-    if refutes_list: diversified_results.append(refutes_list.pop(0))
-    if supports_list: diversified_results.append(supports_list.pop(0))
-    if neutral_list: diversified_results.append(neutral_list.pop(0))
+    # Pick top 2 from each category if available (was 1, increased)
+    for item in refutes_list[:2]: diversified_results.append(item)
+    for item in supports_list[:2]: diversified_results.append(item)
+    for item in neutral_list[:1]: diversified_results.append(item)
     
-    # Add the rest back, sorted by relevance
-    remaining = supports_list + refutes_list + neutral_list
-    remaining.sort(key=lambda x: x.get('score', 100))
+    # Add the rest
+    remaining = refutes_list[2:] + supports_list[2:] + neutral_list[1:]
+    remaining.sort(key=lambda x: (-x.get('relevance_score', 0), x.get('score', 100)))
     
     diversified_results.extend(remaining)
     
@@ -331,51 +320,86 @@ def analyze_text_task(self, text, claim_id=None):
             "neutral": neutral_count
         },
         "status": "completed",
-        "status": "completed",
         "quality_note": quality_note if not insufficient_evidence else "Insufficient Evidence",
     }
     
-    # 5. Unified Risk Calculation
-    # Start with style risk (0-100)
+    # 5. Unified Risk Calculation — IMPROVED with evidence confidence weighting
     final_risk = style_risk
     
-    # Override based on evidence
-    if refutes_count > 0 and supports_count > 0:
-        # Conflicting evidence = Contested
-        final_risk = 65 # Medium Risk (Amber)
-        quality_note = "Contested - Conflicting Evidence"
-    elif refutes_count > 0:
-        # If ONLY refuting evidence found (or no supports), risk is EXTREME
-        final_risk = max(final_risk, 95)
-    elif supports_count > 0:
-        # If verified sources support it, risk is LOW
-        final_risk = min(final_risk, 5)
-    elif is_safety_critical:
-        # Safety Critical Logic
-        if insufficient_evidence:
-             print("Worker: Safety Critical query with NO evidence. Elevating Risk.")
-             final_risk = max(final_risk, 80) # Force High Risk for unverified danger
-             quality_note = "Unverified - High Risk Topic"
-        elif neutral_count > 0 and final_risk < 50:
-             print("Worker: Safety Critical query with only Neutral evidence. Elevating Risk.")
-             final_risk = 70 # High Caution
-             quality_note = "Unverified - Exercise Caution"
-        
-    result["risk_score"] = final_risk
-    result["style_risk_score"] = final_risk # Overwrite for UI
-    result["quality_note"] = quality_note if not insufficient_evidence else "Insufficient Evidence"
-        
-    result["risk_score"] = final_risk
-    result["style_risk_score"] = final_risk # Overwrite for UI
+    # Calculate evidence confidence: how strong are the stance signals?
+    total_stance = supports_count + refutes_count + neutral_count
     
-    # Add new linguistic fields
+    if total_stance > 0:
+        # Weight by count AND by average confidence
+        avg_refute_conf = 0
+        avg_support_conf = 0
+        
+        if refutes_count > 0:
+            avg_refute_conf = sum(
+                e['stance']['confidence'] for e in stance_results 
+                if e['stance']['label'] == 'refutes'
+            ) / refutes_count
+        
+        if supports_count > 0:
+            avg_support_conf = sum(
+                e['stance']['confidence'] for e in stance_results 
+                if e['stance']['label'] == 'supports'
+            ) / supports_count
+    
+        if refutes_count > 0 and supports_count > 0:
+            # Conflicting evidence = Contested
+            final_risk = 65
+            quality_note = "Contested - Conflicting Evidence"
+        elif refutes_count > 0 and supports_count == 0:
+            # FIXED: Scale risk by evidence strength instead of jumping to 95
+            # Only go to 95 if we have STRONG, HIGH-CONFIDENCE refutations
+            if refutes_count >= 3 and avg_refute_conf > 0.7:
+                final_risk = max(final_risk, 95)  # Strong refutation
+            elif refutes_count >= 2 and avg_refute_conf > 0.6:
+                final_risk = max(final_risk, 85)  # Moderate refutation
+            else:
+                final_risk = max(final_risk, 70)  # Weak/single refutation
+        elif supports_count > 0 and refutes_count == 0:
+            # Verified sources support it
+            if supports_count >= 3 and avg_support_conf > 0.7:
+                final_risk = min(final_risk, 5)   # Strongly supported
+            elif supports_count >= 2 and avg_support_conf > 0.6:
+                final_risk = min(final_risk, 15)  # Moderately supported
+            else:
+                final_risk = min(final_risk, 25)  # Weakly supported
+        elif is_safety_critical:
+            if insufficient_evidence:
+                print("Worker: Safety Critical query with NO evidence. Elevating Risk.")
+                final_risk = max(final_risk, 80)
+                quality_note = "Unverified - High Risk Topic"
+            elif neutral_count > 0 and final_risk < 50:
+                print("Worker: Safety Critical query with only Neutral evidence. Elevating Risk.")
+                final_risk = 70
+                quality_note = "Unverified - Exercise Caution"
+    else:
+        # No stance results at all
+        if is_safety_critical:
+            final_risk = max(final_risk, 80)
+            quality_note = "Unverified - High Risk Topic"
+        
+    result["risk_score"] = final_risk
+    result["style_risk_score"] = final_risk  # Overwrite for UI
+    result["quality_note"] = quality_note if not insufficient_evidence else "Insufficient Evidence"
+    
+    # Add linguistic fields
     result["linguistic_signals"] = style_analysis.get("signals", [])
     result["linguistic_verdict"] = style_analysis.get("verdict", "")
 
     result["meta"] = {
         "app_version": "v1.0.0-beta",
         "model_type": "roberta-base+heuristics",
-        "index_version": "chroma-v1"
+        "index_version": "chroma-v1",
+        "evidence_stats": {
+            "total_retrieved": original_count,
+            "after_threshold": len(evidence_list),
+            "skipped_irrelevant": skipped_irrelevant,
+            "final_with_stance": len(stance_results)
+        }
     }
     
     # Cache result (TTL 1 hour)

@@ -169,7 +169,7 @@ docker-compose up --build
 ### Access Points
 | Service | URL |
 |---------|-----|
-| **Web UI** | http://localhost:3000 |
+| **Web UI** | http://localhost:3001 |
 | **API Docs** | http://localhost:8000/docs |
 | **Health Check** | http://localhost:8000/health |
 
@@ -456,6 +456,6 @@ copies or substantial portions of the Software.
 
 **Built with ❤️ for the fight against misinformation**
 
-[Report Bug](https://github.com/your-org/prism/issues) · [Request Feature](https://github.com/your-org/prism/issues) · [Discussions](https://github.com/your-org/prism/discussions)
+[Report Bug](https://github.com/bipul276/prism/issues) · [Request Feature](https://github.com/prism/issues) · [Discussions](https://github.com/bipul276/prism/discussions)
 
 </div>

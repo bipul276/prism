@@ -80,9 +80,9 @@ export function EvidenceStack({ evidence, stanceSummary }: EvidenceStackProps) {
         summary = "Context found, no direct verification.";
     }
 
-    // For conflicting evidence, show 1 of each; otherwise show 2
-    const refuteLimit = isConflicting ? 1 : 2;
-    const supportLimit = isConflicting ? 1 : 2;
+    // For conflicting evidence, show 2 of each; otherwise show 3
+    const refuteLimit = isConflicting ? 2 : 3;
+    const supportLimit = isConflicting ? 2 : 3;
 
     return (
         <div className="space-y-6">
@@ -96,7 +96,7 @@ export function EvidenceStack({ evidence, stanceSummary }: EvidenceStackProps) {
             <div className="space-y-6">
                 {refutes.length > 0 && <Section title="Refuting" items={refutes} color="text-red-600" initialLimit={refuteLimit} />}
                 {supports.length > 0 && <Section title="Supporting" items={supports} color="text-green-600" initialLimit={supportLimit} />}
-                {neutral.length > 0 && <Section title="Neutral" items={neutral} color="text-gray-500" initialLimit={1} />}
+                {neutral.length > 0 && <Section title="Neutral" items={neutral} color="text-gray-500" initialLimit={2} />}
             </div>
         </div>
     );

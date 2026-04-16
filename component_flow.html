@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PRISM — Component Flow Diagram</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+    <style>
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            background: linear-gradient(135deg, #818cf8, #c084fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            color: #94a3b8;
+            font-size: 0.95rem;
+        }
+
+        .chart-container {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 2rem;
+            overflow-x: auto;
+            border: 1px solid #334155;
+            margin-bottom: 2rem;
+        }
+
+        .btn-bar {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.7rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.15s;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .btn-png {
+            background: linear-gradient(135deg, #818cf8, #6366f1);
+            color: #fff;
+        }
+
+        .btn-svg {
+            background: linear-gradient(135deg, #34d399, #059669);
+            color: #fff;
+        }
+
+        .btn-pdf {
+            background: linear-gradient(135deg, #f472b6, #db2777);
+            color: #fff;
+        }
+
+        .legend {
+            max-width: 900px;
+            margin: 2rem auto 0;
+        }
+
+        .legend h2 {
+            text-align: center;
+            color: #94a3b8;
+            margin-bottom: 1rem;
+            font-size: 1.1rem;
+        }
+
+        .legend-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 0.75rem;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.5rem 0.75rem;
+            background: #1e293b;
+            border-radius: 8px;
+            border: 1px solid #334155;
+            font-size: 0.85rem;
+        }
+
+        .legend-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+            flex-shrink: 0;
+        }
+
+        @media print {
+            body {
+                background: #fff;
+                color: #1e293b;
+                padding: 1rem;
+            }
+
+            .btn-bar {
+                display: none;
+            }
+
+            .chart-container {
+                border: 1px solid #ccc;
+                background: #fff;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="header">
+        <h1>PRISM — Component Flow Diagram</h1>
+        <p>End-to-end analysis pipeline: User Input → ML Inference → Evidence Verification → Risk Verdict</p>
+    </div>
+
+    <div class="btn-bar">
+        <button class="btn btn-png" onclick="downloadPNG()">⬇ Download PNG</button>
+        <button class="btn btn-svg" onclick="downloadSVG()">⬇ Download SVG</button>
+        <button class="btn btn-pdf" onclick="window.print()">🖨 Print / Save PDF</button>
+    </div>
+
+    <div class="chart-container" id="chart-container">
+        <pre class="mermaid" id="flow-mermaid">
+flowchart TB
+    %% ──────────────── USER LAYER ────────────────
+    subgraph USER["🖥️ User Layer"]
+        U1["User (Browser)"]
+        U2["Paste Claim Text"]
+        U3["Click 'Analyze'"]
+        U1 --> U2 --> U3
+    end
+
+    %% ──────────────── FRONTEND ────────────────
+    subgraph FE["⚛️ Frontend — Next.js 14"]
+        FE1["AnalysisForm Component"]
+        FE2["POST /api/analyze (Proxy)"]
+        FE3["Poll /api/status/job_id\nevery 2 seconds"]
+        FE4["RiskSummary\n(Full-Width Banner)"]
+        FE5["LinguisticAnalysis\n(Left Column)"]
+        FE6["EvidenceStack\n(Right Column)"]
+        FE7["HeatmapText\n(Token Saliency)"]
+        FE8["Interpretation\n(Full-Width Synthesis)"]
+        FE1 --> FE2
+        FE2 --> FE3
+    end
+
+    %% ──────────────── API LAYER ────────────────
+    subgraph API["🚀 API Layer — FastAPI"]
+        A1["Rate Limiter\n(SlowAPI: 5/min per IP)"]
+        A2["POST /api/analyze\nValidate & Enqueue"]
+        A3["GET /api/status/job_id\nPoll AsyncResult"]
+        A4["GET /health\nDependency Check"]
+        A1 --> A2
+    end
+
+    %% ──────────────── QUEUE ────────────────
+    subgraph QUEUE["📨 Message Queue"]
+        Q1[("Redis\n(Celery Broker)")]
+        Q2["Task: analyze_text_task"]
+    end
+
+    %% ──────────────── WORKER PIPELINE ────────────────
+    subgraph WORKER["⚙️ Celery Worker Pipeline"]
+
+        subgraph CACHE_CHECK["0. Cache Layer"]
+            C1{"Redis Cache\nHit?"}
+            C2["Return Cached\nResult (TTL 1h)"]
+        end
+
+        subgraph STYLE["1. Stylometric Analysis"]
+            S1["RoBERTa\nTokenize & Infer"]
+            S2["Keyword Red-Flag\nDetection"]
+            S3["Caps/Punctuation\nAbuse Detection"]
+            S4["Signal Detection\n(Causal Absolutes,\nEmotional Loading,\nAttribution Gap,\nConspiracy Framing)"]
+            S5["Risk Score\nCalculation (0–1)"]
+            S6["Verdict Generation"]
+            S1 --> S2 --> S3 --> S4 --> S5 --> S6
+        end
+
+        subgraph XAI_BLOCK["2. Explainability (XAI)"]
+            X1["Hook into\nRoBERTa Embeddings"]
+            X2["Forward + Backward\nPass (class 1)"]
+            X3["Input × Gradient\nAttribution"]
+            X4["Per-Token\nSaliency Map"]
+            X1 --> X2 --> X3 --> X4
+        end
+
+        subgraph RAG["3. Evidence Retrieval (RAG)"]
+            R1["Encode Claim\n(MiniLM-L6-v2)"]
+            R2["Query ChromaDB\n(Top-50 Neighbors)"]
+            R3["Relevance Gating\n(score < 1.4)"]
+            R1 --> R2 --> R3
+        end
+
+        subgraph SAFETY["4. Safety Override"]
+            SF1["NLI Safety Check\n(Zero-Shot)"]
+            SF2{"Is Safety\nCritical?"}
+            SF1 --> SF2
+        end
+
+        subgraph ROUTER["5. Reactive RAG — 3-Lane Router"]
+            RT1{"Evidence\nSufficient?"}
+            RT2["EvidenceRouter.route()"]
+            RT3["Lane A:\nGoogle Fact Check API"]
+            RT4["Lane B:\nTrusted News Fetch"]
+            RT5["Ingest → ChromaDB"]
+            RT6["Re-Retrieve\nwith Dynamic\nThreshold Relaxation\n(1.2 → 1.4 → 1.6)"]
+            RT1 -->|No / Weak| RT2
+            RT2 -->|Specific Claim| RT3
+            RT2 -->|General Event| RT4
+            RT3 -->|Empty| RT4
+            RT3 --> RT5
+            RT4 --> RT5
+            RT5 --> RT6
+        end
+
+        subgraph NLI_BLOCK["6. NLI Stance Classification"]
+            N1["For each evidence:\nPremise=Evidence\nHypothesis=Claim"]
+            N2["Cross-Encoder\n(nli-distilroberta-base)"]
+            N3["Classify:\nSupports / Refutes / Neutral"]
+            N4["Confidence Score\n& Distribution"]
+            N1 --> N2 --> N3 --> N4
+        end
+
+        subgraph DEEP["7. Stance-Based Deep Fetch"]
+            D1{"All evidence\nNeutral?"}
+            D2["Deep Fetch:\nLane A + Lane B"]
+            D3["Re-Retrieve &\nRe-Run NLI"]
+            D1 -->|Yes| D2 --> D3
+        end
+
+        subgraph REP["8. Source Reputation"]
+            RP1["Check URL Domain"]
+            RP2["High: reuters, bbc,\nwho.int, cdc.gov, nature"]
+            RP3["Low: infowars, rt.com,\nbreitbart, sputniknews"]
+            RP4["Tag: high / neutral / low"]
+            RP1 --> RP2 & RP3 --> RP4
+        end
+
+        subgraph RANK["9. Diversity Re-Ranking"]
+            RK1["Bucket by Stance\n(Supports / Refutes / Neutral)"]
+            RK2["Sort Buckets by\nRelevance Score"]
+            RK3["Interleave:\nRefutes → Supports → Neutral"]
+            RK4["Cap at Top 8"]
+            RK1 --> RK2 --> RK3 --> RK4
+        end
+
+        subgraph RISK["10. Unified Risk Calculation"]
+            RS1["Start with\nStyle Risk"]
+            RS2{"Evidence\nOverrides"}
+            RS3["Refutes Only → 95"]
+            RS4["Supports Only → 5"]
+            RS5["Conflicting → 65\n(Contested)"]
+            RS6["Safety + No Evidence → 80\n(Unverified Danger)"]
+            RS7["Final Risk Score\n(0–100)"]
+            RS1 --> RS2
+            RS2 -->|Refutes > 0| RS3
+            RS2 -->|Supports > 0| RS4
+            RS2 -->|Both > 0| RS5
+            RS2 -->|Safety Critical| RS6
+            RS3 & RS4 & RS5 & RS6 --> RS7
+        end
+
+        C1 -->|Miss| S1
+        C1 -->|Hit| C2
+        S6 --> X1
+        X4 --> R1
+        R3 --> SF1
+        SF2 -->|Force Fetch| RT1
+        SF2 -->|No| RT1
+        RT1 -->|Yes| N1
+        RT6 --> N1
+        N4 --> D1
+        D1 -->|No| RP1
+        D3 --> RP1
+        RP4 --> RK1
+        RK4 --> RS1
+    end
+
+    %% ──────────────── STORAGE ────────────────
+    subgraph STORAGE["💾 Storage Layer"]
+        DB[("PostgreSQL\n(Claims + Results)")]
+        VDB[("ChromaDB\n(Vector Embeddings)")]
+        REDIS_C[("Redis\n(Cache + Queue)")]
+    end
+
+    %% ──────────────── CONNECTIONS ────────────────
+    U3 --> FE1
+    FE2 --> A1
+    A2 -->|Enqueue| Q1
+    Q1 --> Q2
+    Q2 --> C1
+    FE3 --> A3
+    A3 -->|AsyncResult| Q1
+    RS7 -->|Cache Result| REDIS_C
+    RS7 -->|Return| A3
+    R2 <-->|Query / Ingest| VDB
+    RT5 -->|Store| VDB
+    A2 -->|Write Claim| DB
+
+    A3 -->|completed| FE4
+    FE4 --> FE5 & FE6
+    FE5 --> FE7
+    FE6 --> FE8
+
+    %% ──────────────── STYLES ────────────────
+    classDef userStyle fill:#4f46e5,stroke:#6366f1,color:#fff,stroke-width:2px
+    classDef feStyle fill:#0d9488,stroke:#14b8a6,color:#fff,stroke-width:2px
+    classDef apiStyle fill:#d97706,stroke:#f59e0b,color:#fff,stroke-width:2px
+    classDef workerStyle fill:#7c3aed,stroke:#8b5cf6,color:#fff,stroke-width:2px
+    classDef storageStyle fill:#dc2626,stroke:#ef4444,color:#fff,stroke-width:2px
+    classDef queueStyle fill:#2563eb,stroke:#3b82f6,color:#fff,stroke-width:2px
+    classDef decisionStyle fill:#ea580c,stroke:#f97316,color:#fff,stroke-width:2px
+
+    class U1,U2,U3 userStyle
+    class FE1,FE2,FE3,FE4,FE5,FE6,FE7,FE8 feStyle
+    class A1,A2,A3,A4 apiStyle
+    class S1,S2,S3,S4,S5,S6,X1,X2,X3,X4,R1,R2,R3,SF1,N1,N2,N3,N4,RT3,RT4,RT5,RT6,D2,D3,RP1,RP2,RP3,RP4,RK1,RK2,RK3,RK4,RS1,RS3,RS4,RS5,RS6,RS7,C2 workerStyle
+    class DB,VDB,REDIS_C storageStyle
+    class Q1,Q2 queueStyle
+    class C1,SF2,RT1,RT2,D1,RS2 decisionStyle
+    </pre>
+    </div>
+
+    <div class="legend">
+        <h2>Component Legend</h2>
+        <div class="legend-grid">
+            <div class="legend-item">
+                <div class="legend-dot" style="background:#4f46e5"></div> User Layer (Browser)
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background:#0d9488"></div> Frontend (Next.js 14)
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background:#d97706"></div> API Layer (FastAPI)
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background:#2563eb"></div> Message Queue (Redis/Celery)
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background:#7c3aed"></div> Worker Pipeline (ML Models)
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background:#ea580c"></div> Decision Points
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot" style="background:#dc2626"></div> Storage (Postgres/ChromaDB/Redis)
+            </div>
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'dark',
+            flowchart: {
+                curve: 'basis',
+                padding: 20,
+                nodeSpacing: 30,
+                rankSpacing: 40,
+                useMaxWidth: false,
+            },
+            themeVariables: {
+                darkMode: true,
+                background: '#1e293b',
+                primaryColor: '#7c3aed',
+                primaryTextColor: '#f8fafc',
+                primaryBorderColor: '#8b5cf6',
+                lineColor: '#64748b',
+                secondaryColor: '#334155',
+                tertiaryColor: '#1e293b',
+                fontSize: '13px',
+            }
+        });
+
+        function getSvgDimensions(svg) {
+            const bbox = svg.getBoundingClientRect();
+            const vb = svg.getAttribute('viewBox');
+            let vbW, vbH;
+            if (vb) {
+                const parts = vb.split(/[\s,]+/).map(Number);
+                vbW = parts[2]; vbH = parts[3];
+            }
+            const w = Math.max(bbox.width, vbW || 0, 800);
+            const h = Math.max(bbox.height, vbH || 0, 600);
+            return { w, h };
+        }
+
+        function prepareClone(svg) {
+            const { w, h } = getSvgDimensions(svg);
+            const clone = svg.cloneNode(true);
+            clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+            clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+            clone.setAttribute('width', w);
+            clone.setAttribute('height', h);
+            if (!clone.getAttribute('viewBox')) {
+                clone.setAttribute('viewBox', `0 0 ${w} ${h}`);
+            }
+            clone.style.maxWidth = 'none';
+            const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            bg.setAttribute('width', w);
+            bg.setAttribute('height', h);
+            bg.setAttribute('fill', '#1e293b');
+            clone.insertBefore(bg, clone.firstChild);
+            return { clone, w, h };
+        }
+
+        function downloadSVG() {
+            const svg = document.querySelector('#chart-container svg');
+            if (!svg) { alert('Diagram not rendered yet.'); return; }
+            const { clone } = prepareClone(svg);
+            const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'prism_component_flow.svg'; a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function downloadPNG() {
+            const svg = document.querySelector('#chart-container svg');
+            if (!svg) { alert('Diagram not rendered yet.'); return; }
+            const { clone, w, h } = prepareClone(svg);
+            const scale = 3;
+            const svgData = new XMLSerializer().serializeToString(clone);
+            const canvas = document.createElement('canvas');
+            canvas.width = w * scale;
+            canvas.height = h * scale;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            const img = new Image();
+            img.onload = () => {
+                ctx.drawImage(img, 0, 0, w * scale, h * scale);
+                const a = document.createElement('a');
+                a.href = canvas.toDataURL('image/png');
+                a.download = 'prism_component_flow.png';
+                a.click();
+            };
+            img.onerror = () => alert('PNG export failed. Try the SVG option instead.');
+            img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+        }
+    </script>
+</body>
+
+</html>

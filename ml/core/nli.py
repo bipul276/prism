@@ -11,20 +11,30 @@ class StanceClassifier:
         self.model = AutoModelForSequenceClassification.from_pretrained(model_name).to(self.device)
         self.model.eval()
         
-        # Mapping for this specific model (usually Entailment, Neutral, Contradiction)
-        self.label_mapping = {0: "contradiction", 1: "entailment", 2: "neutral"}
-        # Note: Check specific model config. cross-encoder/nli-distilroberta-base outputs:
-        # 0: contradiction, 1: entailment, 2: neutral (Validation needed)
+        # Read label mapping from model config (ground truth)
+        if hasattr(self.model.config, 'id2label') and self.model.config.id2label:
+            raw_map = self.model.config.id2label
+            self.label_mapping = {int(k): v.lower() for k, v in raw_map.items()}
+            print(f"NLI Label Mapping (from model config): {self.label_mapping}")
+        else:
+            # Verified fallback for cross-encoder/nli-distilroberta-base
+            self.label_mapping = {0: "contradiction", 1: "entailment", 2: "neutral"}
+            print(f"NLI Label Mapping (hardcoded fallback): {self.label_mapping}")
         
-        # Actually, let's verify map for 'cross-encoder/nli-distilroberta-base'
-        # It's trained on MNLI/SNLI.
-        # usually 0: contradiction, 1: entailment, 2: neutral is NOT standard.
-        # Standard huggingface NLI is often: 0: contradiction, 1: neutral, 2: entailment.
-        # We will assume 0: contradiction, 1: entailment, 2: neutral for now but verify.
+        # Build reverse lookup: label_name -> index
+        self.label_to_idx = {v: k for k, v in self.label_mapping.items()}
+        
+        # Validate we have the expected labels
+        expected = {"contradiction", "entailment", "neutral"}
+        actual = set(self.label_mapping.values())
+        if not expected.issubset(actual):
+            print(f"⚠️ NLI WARNING: Expected labels {expected}, got {actual}. Stance may be inaccurate.")
 
     def predict(self, claim, evidence):
-        # Swap: Premise=Evidence, Hypothesis=Claim
-        # "Given this evidence, is the claim true?"
+        """
+        Predict stance of evidence toward a claim.
+        Premise=Evidence, Hypothesis=Claim → "Given this evidence, is the claim true?"
+        """
         inputs = self.tokenizer(
             evidence, 
             claim, 
@@ -36,19 +46,23 @@ class StanceClassifier:
         with torch.no_grad():
             outputs = self.model(**inputs)
             probs = F.softmax(outputs.logits, dim=-1)
+        
+        # Use the verified label mapping indices
+        idx_contra = self.label_to_idx.get("contradiction", 0)
+        idx_entail = self.label_to_idx.get("entailment", 1)
+        idx_neutral = self.label_to_idx.get("neutral", 2)
             
-        # Specific mapping for 'cross-encoder/nli-distilroberta-base':
-        # 0: contradiction, 1: entailment, 2: neutral
+        p_contra = probs[0][idx_contra].item()
+        p_entail = probs[0][idx_entail].item()
+        p_neutral = probs[0][idx_neutral].item()
         
-        p_contra = probs[0][0].item()
-        p_entail = probs[0][1].item()
-        p_neutral = probs[0][2].item()
-        
-        # Heuristic: Be sensitive to contradictions (refutes)
-        # If contradiction is significant (>33%), flag it.
-        if p_contra > 0.33 and p_contra > p_entail:
+        # FIX: Raised contradiction threshold from 0.33 → 0.50
+        # 0.33 was too low — unrelated articles about different events (e.g. Iran/Israel 
+        # vs Russia/Ukraine) often score 0.35-0.45 contradiction just because they describe
+        # a DIFFERENT event with similar keywords ("attack", "war"), causing false "refutes".
+        if p_contra > 0.50 and p_contra > p_entail:
              label = "refutes"
-        elif p_entail > 0.5:
+        elif p_entail > 0.50:
              label = "supports"
         else:
              label = "neutral"
@@ -62,6 +76,47 @@ class StanceClassifier:
                 "neutral": p_neutral
             }
         }
+
+    def is_topically_relevant(self, claim, evidence):
+        """
+        Quick semantic check: does the evidence even relate to the same topic as the claim?
+        Uses entailment as a proxy for topical overlap.
+        Returns (is_relevant: bool, relevance_score: float)
+        """
+        # Check: "Given the claim, does the evidence discuss the same topic?"
+        # Higher entailment + lower contradiction = topically aligned
+        inputs = self.tokenizer(
+            claim, 
+            evidence, 
+            return_tensors="pt", 
+            truncation=True, 
+            max_length=512
+        ).to(self.device)
+        
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+            probs = F.softmax(outputs.logits, dim=-1)
+        
+        idx_contra = self.label_to_idx.get("contradiction", 0)
+        idx_entail = self.label_to_idx.get("entailment", 1)
+        idx_neutral = self.label_to_idx.get("neutral", 2)
+        
+        p_contra = probs[0][idx_contra].item()
+        p_entail = probs[0][idx_entail].item()
+        p_neutral = probs[0][idx_neutral].item()
+        
+        # Relevance = entailment + neutral (both indicate topical connection)
+        # Contradiction alone isn't enough — it could mean "same topic, opposite claim" (relevant!)
+        # OR "completely different topic" (irrelevant)
+        relevance_score = p_entail + p_neutral * 0.5
+        
+        # If contradiction is very high AND entailment is very low, 
+        # it's likely about a completely different event
+        if p_contra > 0.7 and p_entail < 0.15:
+            return False, relevance_score
+        
+        # Threshold: at least some topical overlap
+        return relevance_score > 0.35, relevance_score
 
     def check_safety(self, text):
         """
@@ -83,9 +138,8 @@ class StanceClassifier:
             outputs = self.model(**inputs)
             probs = F.softmax(outputs.logits, dim=-1)
             
-        # 0: contradiction, 1: entailment, 2: neutral (Validation needed)
-        # Based on previous code assumption: 1 is entailment.
-        p_entail = probs[0][1].item()
+        idx_entail = self.label_to_idx.get("entailment", 1)
+        p_entail = probs[0][idx_entail].item()
         
         print(f"DEBUG: Safety Check '{text[:30]}...' -> Entailment: {p_entail:.4f}")
         
